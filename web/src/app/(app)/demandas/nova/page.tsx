@@ -4,50 +4,59 @@ import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { Plus, Trash2 } from "lucide-react";
 import { createRequest } from "@/services/requests";
-import { getCategories, getCostCenters, getDepartments, getUnits } from "@/services/meta";
-import { getBusinessUnits, myUnits } from "@/services/units";
-import { brl } from "@/lib/format";
+import { getUnits, myDepartments } from "@/services/meta";
 
-interface ItemRow { description: string; quantity: number; unit_price: number; unit_id: string | null }
+interface ItemRow { description: string; quantity: number; unit_id: string | null }
+
+// Extrai uma mensagem legível de erros do Supabase (que não são instanceof Error).
+function readableError(e: unknown): string {
+  const msg =
+    e instanceof Error ? e.message
+    : e && typeof e === "object" && "message" in e ? String((e as { message: unknown }).message)
+    : "";
+  if (/row-level security|violates row-level/i.test(msg))
+    return "Você não tem permissão para criar demanda neste setor. Confirme com o administrador se você é requisitante e está vinculado a este setor.";
+  return msg || "Erro ao salvar a demanda.";
+}
 
 export default function NovaDemandaPage() {
   const router = useRouter();
-  const { data: departments = [] } = useQuery({ queryKey: ["departments"], queryFn: getDepartments });
-  const { data: costCenters = [] } = useQuery({ queryKey: ["costCenters"], queryFn: getCostCenters });
-  const { data: categories = [] } = useQuery({ queryKey: ["categories"], queryFn: getCategories });
+  const { data: departments = [] } = useQuery({ queryKey: ["myDepartments"], queryFn: myDepartments });
   const { data: units = [] } = useQuery({ queryKey: ["units"], queryFn: getUnits });
-  const { data: businessUnits = [] } = useQuery({ queryKey: ["businessUnits"], queryFn: getBusinessUnits });
-  const { data: minhasUnidades = [] } = useQuery({ queryKey: ["myUnits"], queryFn: myUnits });
 
   const [form, setForm] = useState({
-    title: "", business_unit_id: "", department_id: "", cost_center_id: "", category_id: "",
-    purchase_type: "PRODUTO", priority: "NORMAL", needed_at: "", justification: "",
-    is_emergency: false, emergency_reason: "",
+    department_id: "", requester_name: "", priority: "NORMAL", needed_at: "",
+    justification: "", is_emergency: false, emergency_reason: "",
   });
-  const [items, setItems] = useState<ItemRow[]>([{ description: "", quantity: 1, unit_price: 0, unit_id: null }]);
+  const [items, setItems] = useState<ItemRow[]>([{ description: "", quantity: 1, unit_id: null }]);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const set = (k: string, v: string | boolean) => setForm((f) => ({ ...f, [k]: v }));
-  const total = items.reduce((s, it) => s + it.quantity * it.unit_price, 0);
-  const filteredCC = costCenters.filter((c) => !form.department_id || c.department_id === form.department_id);
   const updateItem = (i: number, patch: Partial<ItemRow>) =>
     setItems((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
 
   async function save() {
     setError(null);
-    if (!form.title || !form.department_id || !form.cost_center_id) { setError("Preencha título, setor e centro de custo."); return; }
-    if (items.some((it) => !it.description || it.quantity <= 0)) { setError("Todo item precisa de descrição e quantidade maior que zero."); return; }
+    if (!form.department_id) { setError("Selecione o setor solicitante."); return; }
+    if (!form.requester_name.trim()) { setError("Informe o nome do solicitante."); return; }
+    if (items.some((it) => !it.description.trim() || it.quantity <= 0)) {
+      setError("Todo item precisa de descrição e quantidade maior que zero."); return;
+    }
     setSaving(true);
     try {
       const id = await createRequest({
-        ...form, business_unit_id: form.business_unit_id || null,
-        category_id: form.category_id || null, needed_at: form.needed_at || null,
+        department_id: form.department_id,
+        requester_name: form.requester_name.trim(),
+        priority: form.priority,
+        needed_at: form.needed_at || null,
         justification: form.justification || null,
-        emergency_reason: form.is_emergency ? form.emergency_reason || null : null, items,
+        is_emergency: form.is_emergency,
+        emergency_reason: form.is_emergency ? form.emergency_reason || null : null,
+        items,
       });
       router.push(`/demandas/${id}`);
-    } catch (e) { setError(e instanceof Error ? e.message : "Erro ao salvar a demanda."); }
+    } catch (e) { setError(readableError(e)); }
     finally { setSaving(false); }
   }
 
@@ -59,31 +68,16 @@ export default function NovaDemandaPage() {
       </div>
       <section className="card space-y-4 p-5">
         <h2 className="font-medium">Informações gerais</h2>
-        <div><label className="label">Título</label>
-          <input className="input" value={form.title} onChange={(e) => set("title", e.target.value)} /></div>
         <div className="grid gap-4 sm:grid-cols-2">
           <div><label className="label">Setor solicitante</label>
             <select className="input" value={form.department_id}
-              onChange={(e) => { set("department_id", e.target.value); set("cost_center_id", ""); }}>
+              onChange={(e) => set("department_id", e.target.value)}>
               <option value="">Selecione…</option>
               {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select></div>
-          <div><label className="label">Centro de custo</label>
-            <select className="input" value={form.cost_center_id} onChange={(e) => set("cost_center_id", e.target.value)}>
-              <option value="">Selecione…</option>
-              {filteredCC.map((c) => <option key={c.id} value={c.id}>{c.code} — {c.name}</option>)}
-            </select></div>
-          <div><label className="label">Categoria</label>
-            <select className="input" value={form.category_id} onChange={(e) => set("category_id", e.target.value)}>
-              <option value="">Selecione…</option>
-              {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select></div>
-          <div><label className="label">Tipo</label>
-            <select className="input" value={form.purchase_type} onChange={(e) => set("purchase_type", e.target.value)}>
-              <option value="PRODUTO">Produto</option><option value="SERVICO">Serviço</option>
-              <option value="CONTRATO">Contrato</option><option value="RENOVACAO">Renovação</option>
-              <option value="COMPRA_EMERGENCIAL">Compra emergencial</option>
-            </select></div>
+          <div><label className="label">Nome do solicitante</label>
+            <input className="input" value={form.requester_name}
+              onChange={(e) => set("requester_name", e.target.value)} placeholder="Quem está pedindo" /></div>
           <div><label className="label">Prioridade</label>
             <select className="input" value={form.priority} onChange={(e) => set("priority", e.target.value)}>
               <option value="BAIXA">Baixa</option><option value="NORMAL">Normal</option>
@@ -107,24 +101,21 @@ export default function NovaDemandaPage() {
       <section className="card space-y-3 p-5">
         <div className="flex items-center justify-between">
           <h2 className="font-medium">Itens</h2>
-          <button className="btn-ghost" onClick={() => setItems((r) => [...r, { description: "", quantity: 1, unit_price: 0, unit_id: null }])}>
+          <button className="btn-ghost" onClick={() => setItems((r) => [...r, { description: "", quantity: 1, unit_id: null }])}>
             <Plus className="h-4 w-4" /> Adicionar item
           </button>
         </div>
         {items.map((it, i) => (
           <div key={i} className="grid grid-cols-12 items-end gap-2">
-            <div className="col-span-5"><label className="label">Descrição</label>
+            <div className="col-span-6"><label className="label">Descrição</label>
               <input className="input" value={it.description} onChange={(e) => updateItem(i, { description: e.target.value })} /></div>
             <div className="col-span-2"><label className="label">Unidade</label>
               <select className="input" value={it.unit_id ?? ""} onChange={(e) => updateItem(i, { unit_id: e.target.value || null })}>
                 <option value="">—</option>{units.map((u) => <option key={u.id} value={u.id}>{u.code}</option>)}
               </select></div>
-            <div className="col-span-2"><label className="label">Qtd</label>
+            <div className="col-span-3"><label className="label">Qtd</label>
               <input className="input" type="number" min={0} step="0.0001" value={it.quantity}
                 onChange={(e) => updateItem(i, { quantity: Number(e.target.value) })} /></div>
-            <div className="col-span-2"><label className="label">Vlr unit.</label>
-              <input className="input" type="number" min={0} step="0.01" value={it.unit_price}
-                onChange={(e) => updateItem(i, { unit_price: Number(e.target.value) })} /></div>
             <div className="col-span-1">
               <button className="btn-ghost h-9 w-full px-0" onClick={() => setItems((r) => r.filter((_, idx) => idx !== i))} disabled={items.length === 1}>
                 <Trash2 className="h-4 w-4" />
@@ -132,9 +123,6 @@ export default function NovaDemandaPage() {
             </div>
           </div>
         ))}
-        <div className="flex justify-end border-t pt-3 text-sm">
-          <span className="text-slate-500">Total estimado:&nbsp;</span><span className="font-semibold">{brl(total)}</span>
-        </div>
       </section>
 
       {error && <p className="text-sm text-rose-600">{error}</p>}
