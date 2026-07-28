@@ -31,7 +31,7 @@ export async function getHistory(requestId: string): Promise<StatusHistory[]> {
 }
 
 export interface NewRequestInput {
-  department_id: string; requester_name: string | null;
+  business_unit_id: string; requester_name: string | null;
   priority: string; needed_at: string | null; justification: string | null;
   is_emergency: boolean; emergency_reason: string | null;
   items: { description: string; quantity: number; unit_id: string | null }[];
@@ -44,8 +44,8 @@ export async function createRequest(input: NewRequestInput): Promise<string> {
   // Título deixou de ser digitado: derivamos da 1ª descrição de item p/ as listagens.
   const title = input.items.find((it) => it.description.trim())?.description.trim() || "Demanda sem título";
   const { data: req, error } = await supabase.from("purchase_requests").insert({
-    title, department_id: input.department_id, requester_name: input.requester_name,
-    purchase_type: "PRODUTO", priority: input.priority,
+    title, business_unit_id: input.business_unit_id, department_id: null,
+    requester_name: input.requester_name, purchase_type: "PRODUTO", priority: input.priority,
     needed_at: input.needed_at, justification: input.justification,
     is_emergency: input.is_emergency, emergency_reason: input.emergency_reason, created_by: user.id,
   }).select("id").single();
