@@ -4,7 +4,8 @@ import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { Plus, Trash2 } from "lucide-react";
 import { createRequest } from "@/services/requests";
-import { getUnits, myDepartments } from "@/services/meta";
+import { getUnits } from "@/services/meta";
+import { myBusinessUnits } from "@/services/units";
 
 interface ItemRow { description: string; quantity: number; unit_id: string | null }
 
@@ -15,17 +16,17 @@ function readableError(e: unknown): string {
     : e && typeof e === "object" && "message" in e ? String((e as { message: unknown }).message)
     : "";
   if (/row-level security|violates row-level/i.test(msg))
-    return "Você não tem permissão para criar demanda neste setor. Confirme com o administrador se você é requisitante e está vinculado a este setor.";
+    return "Você não tem permissão para criar demanda nesta unidade. Confirme com o administrador se você é requisitante e está vinculado a esta unidade.";
   return msg || "Erro ao salvar a demanda.";
 }
 
 export default function NovaDemandaPage() {
   const router = useRouter();
-  const { data: departments = [] } = useQuery({ queryKey: ["myDepartments"], queryFn: myDepartments });
+  const { data: businessUnits = [] } = useQuery({ queryKey: ["myBusinessUnits"], queryFn: myBusinessUnits });
   const { data: units = [] } = useQuery({ queryKey: ["units"], queryFn: getUnits });
 
   const [form, setForm] = useState({
-    department_id: "", requester_name: "", priority: "NORMAL", needed_at: "",
+    business_unit_id: "", requester_name: "", priority: "NORMAL", needed_at: "",
     justification: "", is_emergency: false, emergency_reason: "",
   });
   const [items, setItems] = useState<ItemRow[]>([{ description: "", quantity: 1, unit_id: null }]);
@@ -38,7 +39,7 @@ export default function NovaDemandaPage() {
 
   async function save() {
     setError(null);
-    if (!form.department_id) { setError("Selecione o setor solicitante."); return; }
+    if (!form.business_unit_id) { setError("Selecione o setor solicitante (unidade)."); return; }
     if (!form.requester_name.trim()) { setError("Informe o nome do solicitante."); return; }
     if (items.some((it) => !it.description.trim() || it.quantity <= 0)) {
       setError("Todo item precisa de descrição e quantidade maior que zero."); return;
@@ -46,7 +47,7 @@ export default function NovaDemandaPage() {
     setSaving(true);
     try {
       const id = await createRequest({
-        department_id: form.department_id,
+        business_unit_id: form.business_unit_id,
         requester_name: form.requester_name.trim(),
         priority: form.priority,
         needed_at: form.needed_at || null,
@@ -70,10 +71,10 @@ export default function NovaDemandaPage() {
         <h2 className="font-medium">Informações gerais</h2>
         <div className="grid gap-4 sm:grid-cols-2">
           <div><label className="label">Setor solicitante</label>
-            <select className="input" value={form.department_id}
-              onChange={(e) => set("department_id", e.target.value)}>
+            <select className="input" value={form.business_unit_id}
+              onChange={(e) => set("business_unit_id", e.target.value)}>
               <option value="">Selecione…</option>
-              {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              {businessUnits.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
             </select></div>
           <div><label className="label">Nome do solicitante</label>
             <input className="input" value={form.requester_name}
