@@ -10,8 +10,8 @@ export type ApprovalDecision = "APROVADO" | "REJEITADO" | "AJUSTE_SOLICITADO" | 
 
 export interface PurchaseRequest {
   id: string; number: string | null; title: string; requester_name: string | null;
-  status: RequestStatus; priority: Priority;
-  purchase_type: string; department_id: string; cost_center_id: string | null;
+  status: RequestStatus; priority: Priority; business_unit_id: string | null;
+  purchase_type: string; department_id: string | null; cost_center_id: string | null;
   category_id: string | null; needed_at: string | null; is_emergency: boolean;
   estimated_total: number; assigned_buyer_id: string | null; created_by: string; created_at: string;
 }
