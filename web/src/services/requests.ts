@@ -31,20 +31,21 @@ export async function getHistory(requestId: string): Promise<StatusHistory[]> {
 }
 
 export interface NewRequestInput {
-  title: string; business_unit_id: string | null; department_id: string; cost_center_id: string; category_id: string | null;
-  purchase_type: string; priority: string; needed_at: string | null; justification: string | null;
+  department_id: string; requester_name: string | null;
+  priority: string; needed_at: string | null; justification: string | null;
   is_emergency: boolean; emergency_reason: string | null;
-  items: { description: string; quantity: number; unit_price: number; unit_id: string | null }[];
+  items: { description: string; quantity: number; unit_id: string | null }[];
 }
 
 export async function createRequest(input: NewRequestInput): Promise<string> {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Sessão expirada.");
+  // Título deixou de ser digitado: derivamos da 1ª descrição de item p/ as listagens.
+  const title = input.items.find((it) => it.description.trim())?.description.trim() || "Demanda sem título";
   const { data: req, error } = await supabase.from("purchase_requests").insert({
-    title: input.title, business_unit_id: input.business_unit_id || null,
-    department_id: input.department_id, cost_center_id: input.cost_center_id,
-    category_id: input.category_id, purchase_type: input.purchase_type, priority: input.priority,
+    title, department_id: input.department_id, requester_name: input.requester_name,
+    purchase_type: "PRODUTO", priority: input.priority,
     needed_at: input.needed_at, justification: input.justification,
     is_emergency: input.is_emergency, emergency_reason: input.emergency_reason, created_by: user.id,
   }).select("id").single();
@@ -52,7 +53,7 @@ export async function createRequest(input: NewRequestInput): Promise<string> {
 
   const items = input.items.map((it, i) => ({
     request_id: req.id, line_no: i + 1, description: it.description,
-    quantity: it.quantity, unit_price: it.unit_price, unit_id: it.unit_id,
+    quantity: it.quantity, unit_price: 0, unit_id: it.unit_id,
   }));
   const { error: itErr } = await supabase.from("purchase_request_items").insert(items);
   if (itErr) throw itErr;
