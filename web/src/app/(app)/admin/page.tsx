@@ -2,7 +2,8 @@
 import { useState } from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { listSuppliers, setSupplierStatus } from "@/services/suppliers";
-import { getBusinessUnits, getCompanies, createBusinessUnit, listUsersWithUnits, setUserUnits } from "@/services/units";
+import { getBusinessUnits, getCompanies, createBusinessUnit, listUsersWithUnits, setUserUnits,
+  getRoles, setUserRoles, createUserAccount } from "@/services/units";
 import { SupplierBadge } from "@/components/status-badge";
 import type { SupplierStatus } from "@/lib/types";
 
@@ -80,41 +81,145 @@ function UsersTab() {
   const qc = useQueryClient();
   const { data: users = [] } = useQuery({ queryKey: ["usersUnits"], queryFn: listUsersWithUnits });
   const { data: units = [] } = useQuery({ queryKey: ["businessUnits"], queryFn: getBusinessUnits });
-  const m = useMutation({
+  const { data: roles = [] } = useQuery({ queryKey: ["roles"], queryFn: getRoles });
+  const refresh = () => qc.invalidateQueries({ queryKey: ["usersUnits"] });
+
+  const mUnits = useMutation({
     mutationFn: ({ userId, unitIds }: { userId: string; unitIds: string[] }) => setUserUnits(userId, unitIds),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["usersUnits"] }),
+    onSuccess: refresh,
   });
+  const mRoles = useMutation({
+    mutationFn: ({ userId, roleIds }: { userId: string; roleIds: string[] }) => setUserRoles(userId, roleIds),
+    onSuccess: refresh,
+  });
+
   return (
-    <div className="card">
-      <div className="border-b p-4">
-        <h2 className="font-medium">Acesso por unidade</h2>
-        <p className="text-sm text-slate-500">Marque quais unidades cada usuário pode enxergar.</p>
-      </div>
-      <div className="divide-y">
-        {users.map((u) => {
-          const current = u.user_business_units.map((x) => x.business_unit_id);
-          return (
-            <div key={u.id} className="p-4">
-              <p className="text-sm font-medium">{u.full_name || u.email}</p>
-              <p className="mb-2 text-xs text-slate-500">{u.email}</p>
-              <div className="flex flex-wrap gap-2">
-                {units.map((un) => {
-                  const on = current.includes(un.id);
-                  return (
-                    <button key={un.id}
-                      className={`rounded-full border px-3 py-1 text-xs ${on ? "border-primary bg-primary/10 text-primary" : "text-slate-600 hover:bg-muted"}`}
-                      onClick={() => m.mutate({ userId: u.id,
-                        unitIds: on ? current.filter((x) => x !== un.id) : [...current, un.id] })}>
-                      {un.name}
-                    </button>
-                  );
-                })}
+    <div className="space-y-5">
+      <NewUserCard roles={roles} units={units} onCreated={refresh} />
+
+      <div className="card">
+        <div className="border-b p-4">
+          <h2 className="font-medium">Usuários cadastrados</h2>
+          <p className="text-sm text-slate-500">Defina os papéis (o que a pessoa pode fazer) e as unidades que ela enxerga.</p>
+        </div>
+        <div className="divide-y">
+          {users.map((u) => {
+            const curUnits = u.user_business_units.map((x) => x.business_unit_id);
+            const curRoles = u.user_roles.filter((r) => r.is_active).map((r) => r.role_id);
+            return (
+              <div key={u.id} className="space-y-3 p-4">
+                <div>
+                  <p className="text-sm font-medium">{u.full_name || u.email}</p>
+                  <p className="text-xs text-slate-500">{u.email}</p>
+                </div>
+                <div>
+                  <p className="mb-1 text-xs font-medium text-slate-500">Papéis</p>
+                  <div className="flex flex-wrap gap-2">
+                    {roles.map((r) => {
+                      const on = curRoles.includes(r.id);
+                      return (
+                        <button key={r.id} disabled={mRoles.isPending}
+                          className={`rounded-full border px-3 py-1 text-xs ${on ? "border-primary bg-primary/10 text-primary" : "text-slate-600 hover:bg-muted"}`}
+                          onClick={() => mRoles.mutate({ userId: u.id,
+                            roleIds: on ? curRoles.filter((x) => x !== r.id) : [...curRoles, r.id] })}>
+                          {r.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div>
+                  <p className="mb-1 text-xs font-medium text-slate-500">Unidades</p>
+                  <div className="flex flex-wrap gap-2">
+                    {units.map((un) => {
+                      const on = curUnits.includes(un.id);
+                      return (
+                        <button key={un.id} disabled={mUnits.isPending}
+                          className={`rounded-full border px-3 py-1 text-xs ${on ? "border-primary bg-primary/10 text-primary" : "text-slate-600 hover:bg-muted"}`}
+                          onClick={() => mUnits.mutate({ userId: u.id,
+                            unitIds: on ? curUnits.filter((x) => x !== un.id) : [...curUnits, un.id] })}>
+                          {un.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
-            </div>
-          );
-        })}
-        {users.length === 0 && <p className="p-6 text-sm text-slate-500">Nenhum usuário.</p>}
+            );
+          })}
+          {users.length === 0 && <p className="p-6 text-sm text-slate-500">Nenhum usuário.</p>}
+        </div>
       </div>
+    </div>
+  );
+}
+
+function NewUserCard({ roles, units, onCreated }:
+  { roles: { id: string; code: string; name: string }[];
+    units: { id: string; name: string }[]; onCreated: () => void }) {
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [roleCodes, setRoleCodes] = useState<string[]>(["REQUISITANTE"]);
+  const [unitIds, setUnitIds] = useState<string[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [ok, setOk] = useState<string | null>(null);
+
+  const toggle = (arr: string[], v: string) => arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v];
+
+  const m = useMutation({
+    mutationFn: () => createUserAccount({
+      full_name: fullName, email, password, role_codes: roleCodes, business_unit_ids: unitIds }),
+    onSuccess: () => {
+      setOk(`Usuário ${email} criado.`); setError(null);
+      setFullName(""); setEmail(""); setPassword(""); setRoleCodes(["REQUISITANTE"]); setUnitIds([]);
+      onCreated();
+    },
+    onError: (e: Error) => { setError(e.message); setOk(null); },
+  });
+
+  return (
+    <div className="card space-y-3 p-5">
+      <h2 className="font-medium">Novo usuário</h2>
+      <p className="text-sm text-slate-500">O usuário já entra com a senha provisória e pode trocá-la depois.</p>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div><label className="label">Nome</label>
+          <input className="input" value={fullName} onChange={(e) => setFullName(e.target.value)} /></div>
+        <div><label className="label">E-mail</label>
+          <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></div>
+        <div><label className="label">Senha provisória</label>
+          <input className="input" type="text" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="mín. 6 caracteres" /></div>
+      </div>
+      <div>
+        <p className="mb-1 text-xs font-medium text-slate-500">Papéis</p>
+        <div className="flex flex-wrap gap-2">
+          {roles.map((r) => {
+            const on = roleCodes.includes(r.code);
+            return (
+              <button key={r.id} type="button"
+                className={`rounded-full border px-3 py-1 text-xs ${on ? "border-primary bg-primary/10 text-primary" : "text-slate-600 hover:bg-muted"}`}
+                onClick={() => setRoleCodes((a) => toggle(a, r.code))}>{r.name}</button>
+            );
+          })}
+        </div>
+      </div>
+      <div>
+        <p className="mb-1 text-xs font-medium text-slate-500">Unidades</p>
+        <div className="flex flex-wrap gap-2">
+          {units.map((un) => {
+            const on = unitIds.includes(un.id);
+            return (
+              <button key={un.id} type="button"
+                className={`rounded-full border px-3 py-1 text-xs ${on ? "border-primary bg-primary/10 text-primary" : "text-slate-600 hover:bg-muted"}`}
+                onClick={() => setUnitIds((a) => toggle(a, un.id))}>{un.name}</button>
+            );
+          })}
+        </div>
+      </div>
+      {error && <p className="text-sm text-rose-600">{error}</p>}
+      {ok && <p className="text-sm text-emerald-600">{ok}</p>}
+      <button className="btn-primary" disabled={!email || password.length < 6 || m.isPending}
+        onClick={() => m.mutate()}>{m.isPending ? "Criando…" : "Criar usuário"}</button>
     </div>
   );
 }
