@@ -18,7 +18,7 @@ mapa comparativo e portal externo de cotação para fornecedores.
 4. Nova query → cole **`supabase/seed.sql`** → **Run**. Isso cria usuários demo e dados de exemplo.
 5. **Settings → API → Exposed schemas**: adicione `app` na lista (fica `public, graphql_public, app`).
    Sem isso as RPCs de transição de estado não funcionam.
-6. **Settings → API**: copie a `URL`, a `anon key` e a `service_role key`.
+6. **Settings → API**: copie a `URL`, a `anon key` e a `service_role key`
 
 > Se preferir CLI (também sem Docker): `supabase link --project-ref SEU_REF && supabase db push`.
 
