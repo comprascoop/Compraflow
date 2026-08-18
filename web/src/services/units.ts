@@ -15,16 +15,12 @@ export async function createBusinessUnit(company_id: string, name: string, code:
   const { error } = await createClient().from("business_units").insert({ company_id, name, code });
   if (error) throw error;
 }
-// unidades vinculadas ao usuário logado (para default de formulários)
 export async function myUnits(): Promise<string[]> {
   const { data, error } = await createClient().from("user_business_units").select("business_unit_id");
   if (error) throw error;
   return (data ?? []).map((r: { business_unit_id: string }) => r.business_unit_id);
 }
 
-// Unidades do usuário logado, com nome (para o "Setor solicitante" da demanda).
-// Só se cria demanda numa unidade da qual você faz parte — então listamos só essas.
-// Sem unidade vinculada (ex.: admin), cai em todas as ativas.
 export async function myBusinessUnits(): Promise<BusinessUnit[]> {
   const supabase = createClient();
   const { data: links, error } = await supabase.from("user_business_units").select("business_unit_id");
@@ -44,10 +40,22 @@ export async function getRoles(): Promise<Role[]> {
 
 export async function listUsersWithUnits() {
   const supabase = createClient();
-  const { data, error } = await supabase.from("profiles")
-    .select("id, full_name, email, is_active, user_business_units(business_unit_id), user_roles(role_id, is_active)");
-  if (error) throw error;
-  return (data ?? []) as unknown as {
+  const [{ data: profiles, error: pErr }, { data: ubu, error: uErr }, { data: ur, error: rErr }] =
+    await Promise.all([
+      supabase.from("profiles").select("id, full_name, email, is_active").order("full_name"),
+      supabase.from("user_business_units").select("user_id, business_unit_id"),
+      supabase.from("user_roles").select("user_id, role_id, is_active"),
+    ]);
+  if (pErr) throw pErr;
+  if (uErr) throw uErr;
+  if (rErr) throw rErr;
+  return (profiles ?? []).map((p) => ({
+    id: p.id, full_name: p.full_name, email: p.email, is_active: p.is_active,
+    user_business_units: (ubu ?? []).filter((x) => x.user_id === p.id)
+      .map((x) => ({ business_unit_id: x.business_unit_id })),
+    user_roles: (ur ?? []).filter((x) => x.user_id === p.id)
+      .map((x) => ({ role_id: x.role_id, is_active: x.is_active })),
+  })) as {
     id: string; full_name: string; email: string | null; is_active: boolean;
     user_business_units: { business_unit_id: string }[];
     user_roles: { role_id: string; is_active: boolean }[];
@@ -62,7 +70,6 @@ export async function setUserUnits(userId: string, unitIds: string[]) {
     if (error) throw error;
   }
 }
-// Papéis de um usuário (admin pode editar via RLS). Substitui o conjunto atual.
 export async function setUserRoles(userId: string, roleIds: string[]) {
   const supabase = createClient();
   await supabase.from("user_roles").delete().eq("user_id", userId);
@@ -73,17 +80,21 @@ export async function setUserRoles(userId: string, roleIds: string[]) {
   }
 }
 
-// Cria um novo usuário (auth + profile + papéis + unidades) via rota no servidor
-// (usa a service role — a criação do login não pode ser feita no navegador).
 export async function createUserAccount(input: {
   full_name: string; email: string; password: string;
   role_codes: string[]; business_unit_ids: string[];
 }): Promise<void> {
-  const res = await fetch("/api/admin/usuarios", {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input),
-  });
+  let res: Response;
+  try {
+    res = await fetch("/api/admin/usuarios", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input),
+    });
+  } catch {
+    throw new Error("Não foi possível contatar o servidor.");
+  }
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error ?? "Falha ao criar usuário.");
+    let msg = `Falha ao criar usuário (HTTP ${res.status}).`;
+    try { const body = await res.json(); if (body?.error) msg = body.error; } catch { /* resposta não-JSON */ }
+    throw new Error(msg);
   }
 }
