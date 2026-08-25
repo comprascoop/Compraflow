@@ -26,9 +26,12 @@ export async function inviteSuppliers(roundId: string, supplierIds: string[]) {
 
 export async function getInvited(roundId: string) {
   const { data, error } = await createClient().from("sourcing_suppliers")
-    .select("id, status, supplier_id, suppliers(legal_name)").eq("round_id", roundId);
+    .select("id, status, supplier_id, decline_reason, suppliers(legal_name)").eq("round_id", roundId);
   if (error) throw error;
-  return (data ?? []) as unknown as { id: string; status: string; supplier_id: string; suppliers: { legal_name: string } | null }[];
+  return (data ?? []) as unknown as {
+    id: string; status: string; supplier_id: string; decline_reason: string | null;
+    suppliers: { legal_name: string } | null;
+  }[];
 }
 
 // Registra proposta com itens; totais são calculados pelo banco.
