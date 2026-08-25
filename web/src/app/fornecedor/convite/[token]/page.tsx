@@ -10,6 +10,19 @@ interface Ctx {
 }
 interface Item { id: string; line_no: number; description: string; specification: string | null; quantity: number }
 
+// Traduz erros técnicos do servidor em mensagens claras para o fornecedor.
+function friendlyError(msg: string): string {
+  if (/invalid input syntax for type date/i.test(msg))
+    return "A validade da proposta está em formato inválido. Preencha uma data ou deixe o campo em branco.";
+  if (/invalid input syntax for type (numeric|integer|double)/i.test(msg))
+    return "Confira os campos de valores (frete, impostos, desconto, preços) — use apenas números.";
+  if (/expir/i.test(msg))
+    return "Este link de cotação expirou. Solicite um novo link ao comprador responsável.";
+  if (/já respond|already/i.test(msg))
+    return "Esta proposta já foi enviada.";
+  return msg || "Não foi possível enviar a proposta. Tente novamente em instantes.";
+}
+
 export default function ConvitePage() {
   const { token } = useParams<{ token: string }>();
   const [ctx, setCtx] = useState<Ctx | null>(null);
@@ -38,16 +51,28 @@ export default function ConvitePage() {
     + Number(header.freight_amount || 0) + Number(header.taxes_amount || 0) - Number(header.discount_amount || 0);
 
   async function enviar() {
-    setError(null); setBusy(true);
+    setError(null);
+    // Validação amigável antes de enviar.
+    if (items.every((it) => !prices[it.id] || Number(prices[it.id]) <= 0)) {
+      setError("Informe o valor unitário de pelo menos um item antes de enviar.");
+      return;
+    }
+    setBusy(true);
     try {
+      // Campos vazios de data/número viram nulo (evita erro de tipo no banco).
+      const cleanHeader = {
+        ...header,
+        valid_until: header.valid_until || null,
+        delivery_days: header.delivery_days || null,
+      };
       const r = await fetch("/api/portal/enviar", { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, header, items: items.map((it) => ({
+        body: JSON.stringify({ token, header: cleanHeader, items: items.map((it) => ({
           request_item_id: it.id, quantity_offered: it.quantity,
           unit_price: Number(prices[it.id] || 0), technical_fit: "ATENDE", will_quote: true })) }) });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error);
       setReceipt(j); setStep("enviado");
-    } catch (e) { setError(e instanceof Error ? e.message : "Erro ao enviar"); }
+    } catch (e) { setError(friendlyError(e instanceof Error ? e.message : "")); }
     finally { setBusy(false); }
   }
 
@@ -179,7 +204,11 @@ export default function ConvitePage() {
             </p>
           </div>
 
-          {error && <p className="text-sm text-rose-600">{error}</p>}
+          {error && (
+            <div className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
+              <span className="mt-0.5">⚠️</span><span>{error}</span>
+            </div>
+          )}
           <div className="flex justify-end gap-2">
             <button className="btn-ghost" onClick={() => setStep("aceite")}>Voltar</button>
             <button className="btn-primary" onClick={enviar} disabled={busy}>
