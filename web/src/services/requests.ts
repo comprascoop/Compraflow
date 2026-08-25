@@ -73,9 +73,13 @@ export async function assignBuyer(requestId: string) {
 }
 export async function allowedTransitions(from: RequestStatus) {
   const { data, error } = await createClient().from("request_status_transitions")
-    .select("to_status, description, requires_comment").eq("from_status", from);
+    .select("to_status, description, requires_comment, required_role, allow_owner, allow_dept_manager")
+    .eq("from_status", from);
   if (error) throw error;
-  return data as { to_status: RequestStatus; description: string; requires_comment: boolean }[];
+  return data as {
+    to_status: RequestStatus; description: string; requires_comment: boolean;
+    required_role: string | null; allow_owner: boolean; allow_dept_manager: boolean;
+  }[];
 }
 export async function generateOrders(requestId: string): Promise<number> {
   const { data, error } = await createClient().rpc("fn_generate_orders", { p_request_id: requestId });
