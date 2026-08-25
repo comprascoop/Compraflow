@@ -138,17 +138,26 @@ export default function CotacaoPage() {
             <div className="border-b p-4"><h2 className="font-medium">Fornecedores convidados ({invited.length})</h2></div>
             {invited.length === 0 ? <div className="p-6"><EmptyState title="Nenhum fornecedor convidado ainda" /></div> : (
               <div className="divide-y">
-                {invited.map((i) => (
-                  <div key={i.id} className="flex flex-wrap items-center justify-between gap-2 p-4">
-                    <div>
-                      <p className="font-medium">{i.suppliers?.legal_name}</p>
-                      <p className="text-xs text-slate-500">{i.status}</p>
+                {invited.map((i) => {
+                  const recusou = i.status === "RECUSADO";
+                  const respondeu = i.status === "RESPONDIDO";
+                  return (
+                    <div key={i.id} className="flex flex-wrap items-center justify-between gap-2 p-4">
+                      <div>
+                        <p className="font-medium">{i.suppliers?.legal_name}</p>
+                        <p className={`text-xs ${recusou ? "text-rose-600" : "text-slate-500"}`}>
+                          {recusou ? "Recusou participação" : respondeu ? "Proposta recebida" : i.status}
+                        </p>
+                        {recusou && i.decline_reason && (
+                          <p className="mt-1 text-xs text-slate-600">Motivo: {i.decline_reason}</p>
+                        )}
+                      </div>
+                      {!respondeu && !recusou && (
+                        <button className="btn-ghost" onClick={() => setQuoteFor(i.supplier_id)}>Registrar proposta</button>
+                      )}
                     </div>
-                    {i.status !== "RESPONDIDO" && (
-                      <button className="btn-ghost" onClick={() => setQuoteFor(i.supplier_id)}>Registrar proposta</button>
-                    )}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
