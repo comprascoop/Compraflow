@@ -6,6 +6,8 @@ import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { allowedTransitions, assignBuyer, generateOrders, getHistory, getItems, getRequest, transition } from "@/services/requests";
 import { brl, dateBR, dateTimeBR } from "@/lib/format";
 import { StatusBadge, priorityLabel } from "@/components/status-badge";
+import { useRoles } from "@/lib/use-roles";
+import { createClient } from "@/lib/supabase/client";
 import type { RequestStatus } from "@/lib/types";
 
 const TABS = ["Visão geral", "Itens", "Histórico"] as const;
@@ -17,6 +19,12 @@ export default function DemandaDetalhe() {
   const [comment, setComment] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+
+  const roles = useRoles();
+  const { data: userId } = useQuery({
+    queryKey: ["me"],
+    queryFn: async () => (await createClient().auth.getUser()).data.user?.id ?? null,
+  });
 
   const { data: req, isLoading } = useQuery({ queryKey: ["request", id], queryFn: () => getRequest(id) });
   const { data: items = [] } = useQuery({ queryKey: ["items", id], queryFn: () => getItems(id) });
@@ -46,6 +54,19 @@ export default function DemandaDetalhe() {
 
   if (isLoading || !req) return <div className="h-40 animate-pulse rounded-lg bg-muted" />;
 
+  // Quem pode o quê (mesma regra do banco), para mostrar só as ações do perfil.
+  const isAdmin = roles.includes("ADMINISTRADOR");
+  const isPurchasing = roles.includes("COMPRADOR") || roles.includes("COORDENADOR_COMPRAS");
+  const isOwner = !!userId && req.created_by === userId;
+  const canDo = (a: (typeof actions)[number]) =>
+    isAdmin
+    || (!!a.required_role && roles.includes(a.required_role as (typeof roles)[number]))
+    || (a.allow_owner && isOwner)
+    || (a.allow_dept_manager && roles.includes("GESTOR_SETOR"));
+  const myActions = actions.filter(canDo);
+  const canAssign = (isPurchasing || isAdmin) && !req.assigned_buyer_id;
+  const canGenerateOrders = (isPurchasing || isAdmin) && req.status === "APROVADA";
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -74,20 +95,22 @@ export default function DemandaDetalhe() {
         {error && <p className="mb-2 text-sm text-rose-600">{error}</p>}
         {info && <p className="mb-2 text-sm text-emerald-700">{info}</p>}
         <div className="flex flex-wrap items-center gap-2">
-          {!req.assigned_buyer_id && (
+          {canAssign && (
             <button className="btn-ghost" onClick={() => doAssign.mutate()} disabled={doAssign.isPending}>Assumir demanda</button>
           )}
-          {req.status === "APROVADA" && (
+          {canGenerateOrders && (
             <button className="btn-primary" onClick={() => doOrders.mutate()} disabled={doOrders.isPending}>Gerar pedido de compra</button>
           )}
-          {actions.length === 0 && <span className="text-sm text-slate-500">Sem transições disponíveis neste estado.</span>}
-          {actions.map((a) => (
+          {myActions.map((a) => (
             <button key={a.to_status} className="btn-primary" disabled={doTransition.isPending}
               onClick={() => {
                 if (a.requires_comment && !comment.trim()) { setError("Esta ação exige justificativa."); return; }
                 doTransition.mutate(a.to_status);
               }}>{a.description}</button>
           ))}
+          {myActions.length === 0 && !canAssign && !canGenerateOrders && (
+            <span className="text-sm text-slate-500">Nenhuma ação disponível para o seu perfil neste momento.</span>
+          )}
         </div>
         <input className="input mt-3" placeholder="Justificativa (obrigatória em algumas ações)"
           value={comment} onChange={(e) => setComment(e.target.value)} />
