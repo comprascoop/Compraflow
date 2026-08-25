@@ -66,6 +66,9 @@ export default function DemandaDetalhe() {
   const myActions = actions.filter(canDo);
   const canAssign = (isPurchasing || isAdmin) && !req.assigned_buyer_id;
   const canGenerateOrders = (isPurchasing || isAdmin) && req.status === "APROVADA";
+  // Cotação e mapa comparativo são de compras/aprovação — não do solicitante.
+  const isApprover = roles.includes("APROVADOR_FINANCEIRO");
+  const canSeeSourcing = isPurchasing || isAdmin || isApprover;
 
   return (
     <div className="space-y-6">
@@ -85,10 +88,12 @@ export default function DemandaDetalhe() {
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        <Link href={`/demandas/${id}/cotacao`} className="btn-ghost">Workspace de cotação</Link>
-        <Link href={`/demandas/${id}/comparativo`} className="btn-ghost">Mapa comparativo</Link>
-      </div>
+      {canSeeSourcing && (
+        <div className="flex flex-wrap gap-2">
+          <Link href={`/demandas/${id}/cotacao`} className="btn-ghost">Workspace de cotação</Link>
+          <Link href={`/demandas/${id}/comparativo`} className="btn-ghost">Mapa comparativo</Link>
+        </div>
+      )}
 
       <div className="card p-4">
         <p className="mb-2 text-sm font-medium">Ações</p>
